@@ -30,6 +30,7 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 
+# 以batch为单位的预测
 @dataclass
 class BatchForecast:
     """
@@ -42,9 +43,11 @@ class BatchForecast:
     allow_nan: bool = False
 
     def __getitem__(self, name):
+        # 将预测值取出，并stack在一起
         values = [forecast[name].T for forecast in self.forecasts]
         res = np.stack(values, axis=0)
 
+        # 如果预测存在NaN，那么报错
         if np.isnan(res).any():
             if not self.allow_nan:
                 raise ValueError("Forecast contains NaN values")
@@ -54,6 +57,7 @@ class BatchForecast:
         return res
 
 
+# 获取数据batch
 def _get_data_batch(
     input_batch: List[DataEntry],
     label_batch: List[DataEntry],
@@ -92,6 +96,7 @@ def _get_data_batch(
     )
 
 
+# 评估原始预测？
 def evaluate_forecasts_raw(
     forecasts: Iterable[Forecast],
     *,
@@ -173,6 +178,7 @@ def evaluate_forecasts_raw(
     return metrics_values
 
 
+# 评估预测？
 def evaluate_forecasts(
     forecasts: Iterable[Forecast],
     *,
@@ -225,6 +231,7 @@ def evaluate_forecasts(
     return pd.DataFrame(flattened_metrics, index=index)
 
 
+# 评估模型？
 def evaluate_model(
     model: Predictor,
     *,

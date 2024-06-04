@@ -20,19 +20,24 @@ def plot_single(
 ):
     ax = maybe.unwrap_or_else(ax, plt.gca)
 
+    # 将inpute和label的长度拼接在一起？
     target = np.concatenate([inp["target"], label["target"]], axis=-1)
     start = inp["start"]
     if dim is not None:
         target = target[dim]
         forecast = forecast.copy_dim(dim)
 
+    # 长度和上面的target相同，并且从start对应的时间点开始
     index = pd.period_range(start, periods=len(target), freq=start.freq)
+    # 这个相当于画ground truth（包括输入窗口和预测窗口）
     ax.plot(
         index.to_timestamp()[-context_length - forecast.prediction_length :],
         target[-context_length - forecast.prediction_length :],
         label="target",
         color="black",
     )
+    # 由于intervals默认设置为[0.5, 0.9]
+    # 因此其会画出median的预测，50%范围内的预测，以及90%范围内的预测。
     forecast.plot(
         intervals=intervals,
         ax=ax,

@@ -34,6 +34,7 @@ def fs2idx(
     )
 
 
+# 多个patch大小的输入层。
 class MultiInSizeLinear(nn.Module):
     def __init__(
         self,
@@ -46,12 +47,15 @@ class MultiInSizeLinear(nn.Module):
         self.in_features_ls = in_features_ls
         self.out_features = out_features
 
+        # 生成len(in_features_ls)个线性层
+        # 每层的参数均为[out_features, max(in_features_ls)]！！
         self.weight = nn.Parameter(
             torch.empty(
                 (len(in_features_ls), out_features, max(in_features_ls)), dtype=dtype
             )
         )
 
+        # 对应的bias参数
         if bias:
             self.bias = nn.Parameter(
                 torch.empty((len(in_features_ls), out_features), dtype=dtype)
@@ -59,6 +63,7 @@ class MultiInSizeLinear(nn.Module):
         else:
             self.register_parameter("bias", None)
 
+        # 初始化参数
         self.reset_parameters()
 
         self.register_buffer(
@@ -76,10 +81,13 @@ class MultiInSizeLinear(nn.Module):
         )
 
     def reset_parameters(self):
+        # 遍历in_features_ls中的各个patch大小？
         for idx, feat_size in enumerate(self.in_features_ls):
+            # patch_size后面的数据做kaiming初始化；前面的则设置为0。
             nn.init.kaiming_uniform_(self.weight[idx, :, :feat_size], a=math.sqrt(5))
             nn.init.zeros_(self.weight[idx, :, feat_size:])
             if self.bias is not None:
+                # bias同理
                 fan_in, _ = nn.init._calculate_fan_in_and_fan_out(
                     self.weight[idx, :, :feat_size]
                 )
@@ -92,7 +100,9 @@ class MultiInSizeLinear(nn.Module):
         in_feat_size: Int[torch.Tensor, "*batch"],
     ) -> Float[torch.Tensor, "*batch out_feat"]:
         out = 0
+        # 遍历in_features_ls中的各个patch大小？
         for idx, feat_size in enumerate(self.in_features_ls):
+            # 由于定义线性层时均按照max的patch_size定义，所以这里还需要mask挡住前面的部分？
             weight = self.weight[idx] * self.mask[idx]
             bias = self.bias[idx] if self.bias is not None else 0
             out = out + (
@@ -115,15 +125,18 @@ class MultiOutSizeLinear(nn.Module):
         self,
         in_features: int,
         out_features_ls: tuple[int, ...],
-        dim: int = 1,
+        dim: int = 1,  # FIXME: newly-add!!
         bias: bool = True,
         dtype: Optional[torch.dtype] = None,
     ):
         super().__init__()
         self.in_features = in_features
         self.out_features_ls = out_features_ls
-        self.dim = dim
+        self.dim = dim  # FIXME: newly-add!!
 
+        # 和input基本一致，除了把in_features换成了out_features_ls吧。
+        # 也即：生成len(out_features_ls)个线性层
+        # 每层的参数均为[max(out_features), in_features_ls]！！
         self.weight = nn.Parameter(
             torch.empty(
                 (len(out_features_ls), max(out_features_ls), in_features), dtype=dtype
@@ -175,7 +188,7 @@ class MultiOutSizeLinear(nn.Module):
             weight = self.weight[idx] * self.mask[idx]
             bias = self.bias[idx] if self.bias is not None else 0
             out = out + (
-                torch.eq(out_feat_size, feat_size // self.dim).unsqueeze(-1)
+                torch.eq(out_feat_size, feat_size // self.dim).unsqueeze(-1)  # FIXME: 这里从feat_size改成了feat_size // self.dim！！
                 * (einsum(weight, x, "out inp, ... inp -> ... out") + bias)
             )
         return out

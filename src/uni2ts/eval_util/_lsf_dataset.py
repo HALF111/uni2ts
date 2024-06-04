@@ -6,6 +6,8 @@ import pandas as pd
 from uni2ts.common.env import env
 
 
+# 目前最常用的LTSF的benchmark上的数据集？
+# 这里主要是ETT的4个+Weather+Electricity。
 class LSFDataset:
     def __init__(
         self,
@@ -34,6 +36,7 @@ class LSFDataset:
         else:
             raise ValueError(f"Unknown dataset name: {dataset_name}")
 
+        # mode用于控制做单变量预测还是多变量预测？
         if mode == "S":
             self.target_dim = 1
             self.past_feat_dynamic_real_dim = 0
@@ -74,6 +77,7 @@ class LSFDataset:
         std = train.std(axis=0)
         return (data - mean) / std
 
+    # 这个构造方法和Autoformer等里面的是一样的
     def _load_etth(self):
         df = pd.read_csv(
             os.path.join(env.LSF_PATH, f"ETT-small/{self.dataset_name}.csv")

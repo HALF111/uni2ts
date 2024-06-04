@@ -28,11 +28,13 @@ from uni2ts.common.env import env
 from uni2ts.common.typing import GenFunc
 from uni2ts.data.dataset import EvalDataset, SampleTimeSeriesType, TimeSeriesDataset
 from uni2ts.data.indexer import HuggingFaceDatasetIndexer
-from uni2ts.transform import Transformation
+from uni2ts.transform import Identity, Transformation
 
 from ._base import DatasetBuilder
 
 
+# long
+# 从df的items中获取当前数据集的每个时间点？
 def _from_long_dataframe(
     df: pd.DataFrame,
     offset: Optional[int] = None,
@@ -81,10 +83,10 @@ def _from_wide_dataframe(
     def example_gen_func() -> Generator[dict[str, Any], None, None]:
         for i in range(len(df.columns)):
             yield {
-                "target": df.iloc[:, i].to_numpy(),
+                "target": df.iloc[:, i].to_numpy(),  # 区别1
                 "start": df.index[0],
                 "freq": pd.infer_freq(df.index),
-                "item_id": f"item_{i}",
+                "item_id": f"item_{i}",  # 区别2
             }
 
     features = Features(
@@ -129,6 +131,7 @@ def _from_wide_dataframe_multivariate(
     return example_gen_func, features
 
 
+# 构造一般数据集（如训练集）的类
 @dataclass
 class SimpleDatasetBuilder(DatasetBuilder):
     dataset: str
@@ -146,6 +149,7 @@ class SimpleDatasetBuilder(DatasetBuilder):
         offset: Optional[int] = None,
         date_offset: Optional[pd.Timestamp] = None,
     ):
+        # 两个不能同时设置
         assert offset is None or date_offset is None, (
             "One or neither offset and date_offset must be specified, but not both. "
             f"Got offset: {offset}, date_offset: {date_offset}"
@@ -153,6 +157,8 @@ class SimpleDatasetBuilder(DatasetBuilder):
 
         df = pd.read_csv(file, index_col=0, parse_dates=True)
 
+        # 根据数据类型来继续做处理。
+        # 获得样本生成函数，以及对应的features描述
         if dataset_type == "long":
             _from_dataframe = _from_long_dataframe
         elif dataset_type == "wide":
@@ -168,15 +174,19 @@ class SimpleDatasetBuilder(DatasetBuilder):
         example_gen_func, features = _from_dataframe(
             df, offset=offset, date_offset=date_offset
         )
+        # 从_from_dataframe来构造数据集
         hf_dataset = datasets.Dataset.from_generator(
             example_gen_func, features=features
         )
+        # 设置数据集名字
         hf_dataset.info.dataset_name = self.dataset
+        # 保存到硬盘上
         hf_dataset.save_to_disk(self.storage_path / self.dataset)
 
     def load_dataset(
         self, transform_map: dict[str, Callable[..., Transformation]]
     ) -> Dataset:
+        # 加载dataset
         return TimeSeriesDataset(
             HuggingFaceDatasetIndexer(
                 datasets.load_from_disk(
@@ -189,6 +199,7 @@ class SimpleDatasetBuilder(DatasetBuilder):
         )
 
 
+# 构造验证数据集的类
 @dataclass
 class SimpleEvalDatasetBuilder(DatasetBuilder):
     dataset: str
@@ -204,8 +215,10 @@ class SimpleEvalDatasetBuilder(DatasetBuilder):
         self.storage_path = Path(self.storage_path)
 
     def build_dataset(self, file: Path, dataset_type: str):
+        # 读出数据
         df = pd.read_csv(file, index_col=0, parse_dates=True)
 
+        # eval的时候无需用offset做切割，直接把整个保存下来？
         if dataset_type == "long":
             _from_dataframe = _from_long_dataframe
         elif dataset_type == "wide":
@@ -219,15 +232,19 @@ class SimpleEvalDatasetBuilder(DatasetBuilder):
             )
 
         example_gen_func, features = _from_dataframe(df)
+        # 从generator来构造数据集
         hf_dataset = datasets.Dataset.from_generator(
             example_gen_func, features=features
         )
+        # 设置数据集名字
         hf_dataset.info.dataset_name = self.dataset
+        # 保存到硬盘上
         hf_dataset.save_to_disk(self.storage_path / self.dataset)
 
     def load_dataset(
         self, transform_map: dict[str, Callable[..., Transformation]]
     ) -> Dataset:
+        # 加载dataset
         return EvalDataset(
             self.windows,
             HuggingFaceDatasetIndexer(
@@ -235,6 +252,7 @@ class SimpleEvalDatasetBuilder(DatasetBuilder):
                     str(self.storage_path / self.dataset),
                 )
             ),
+            # 意思是用前面offset得到的mean和var之类的来做transform？
             transform=transform_map[self.dataset](
                 offset=self.offset,
                 distance=self.distance,
@@ -291,6 +309,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # 用offset之前的时间构建训练集
     SimpleDatasetBuilder(dataset=args.dataset_name).build_dataset(
         file=Path(args.file_path),
         dataset_type=args.dataset_type,
@@ -298,6 +317,9 @@ if __name__ == "__main__":
         date_offset=pd.Timestamp(args.date_offset) if args.date_offset else None,
     )
 
+    # 用offset之后的时间点构造验证集/测试集？
+    # * 但是这里传入的offset是None，所以实际eval中会包含所有的数据点？？？
+    # PS：offset似乎只用于控制get_transform，即例如只使用前面的mean和var信息做转换？
     if args.offset is not None or args.date_offset is not None:
         SimpleEvalDatasetBuilder(
             f"{args.dataset_name}_eval",

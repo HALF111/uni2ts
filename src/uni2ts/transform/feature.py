@@ -23,6 +23,7 @@ from ._base import Transformation
 from ._mixin import CheckArrNDimMixin, CollectFuncMixin
 
 
+# 生成varitae的id！！
 @dataclass
 class AddVariateIndex(CollectFuncMixin, CheckArrNDimMixin, Transformation):
     """
@@ -38,7 +39,10 @@ class AddVariateIndex(CollectFuncMixin, CheckArrNDimMixin, Transformation):
     collection_type: type = list
 
     def __call__(self, data_entry: dict[str, Any]) -> dict[str, Any]:
+        # 计数君起始位0？
         self.counter = 0
+        # 如果随机选取，则从[0,1,...,max_dim-1]中采样max_dim个点，组成variate-id_list。并且replace=False表示不可以取相同数字
+        # 否则的话就直接用[0,1,...,max_dim-1]
         self.dimensions = (
             np.random.choice(self.max_dim, size=self.max_dim, replace=False)
             if self.randomize
@@ -56,12 +60,16 @@ class AddVariateIndex(CollectFuncMixin, CheckArrNDimMixin, Transformation):
         self, data_entry: dict[str, Any], field: str
     ) -> np.ndarray:
         arr = data_entry[field]
-        self.check_ndim(field, arr, self.expected_ndim)
+        self.check_ndim(field, arr, self.expected_ndim)  # 检查arr的维度应当和expected_ndim相等？
+        # 当前数据的维度就是dim*time，所以生成的ids也应当是这个大小？
         dim, time = arr.shape[:2]
         if self.counter + dim > self.max_dim:
             raise ValueError(
                 f"Variate ({self.counter + dim}) exceeds maximum variate {self.max_dim}. "
             )
+        
+        # 生成dim个variate，每个的长度为time
+        # varite从上面self.dimensions中获得连续的dim个来得到
         field_dim_id = repeat(
             np.asarray(self.dimensions[self.counter : self.counter + dim], dtype=int),
             "var -> var time",
@@ -99,7 +107,9 @@ class AddTimeIndex(CollectFuncMixin, CheckArrNDimMixin, Transformation):
         arr = data_entry[field]
         self.check_ndim(field, arr, self.expected_ndim)
         var, time = arr.shape[:2]
+        # time_id就是用numpy的arange函数生成的[0,1,...,time-1]的序列！！
         field_seq_id = np.arange(time)
+        # 然后重复var遍即可
         field_seq_id = repeat(field_seq_id, "time -> var time", var=var)
         return field_seq_id
 
@@ -118,9 +128,11 @@ class AddObservedMask(CollectFuncMixin, Transformation):
             self.fields,
             optional_fields=self.optional_fields,
         )
+        # 返回observed_mask
         data_entry[self.observed_mask_field] = observed_mask
         return data_entry
 
+    # NaN的值会变成False，正常值的地方为True
     @staticmethod
     def _generate_observed_mask(data_entry: dict[str, Any], field: str) -> np.ndarray:
         arr = data_entry[field]

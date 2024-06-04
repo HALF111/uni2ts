@@ -75,6 +75,8 @@ class PackedNOPScaler(PackedScaler):
         return loc, scale
 
 
+# scaler模块
+# 
 class PackedStdScaler(PackedScaler):
     def __init__(self, correction: int = 1, minimum_scale: float = 1e-5):
         super().__init__()
@@ -90,6 +92,7 @@ class PackedStdScaler(PackedScaler):
     ) -> tuple[
         Float[torch.Tensor, "*batch 1 #dim"], Float[torch.Tensor, "*batch 1 #dim"]
     ]:
+        # 根据sample_id和variate_id共同控制哪些点是属于同一个样本/同一个变量？
         id_mask = torch.logical_and(
             torch.eq(sample_id.unsqueeze(-1), sample_id.unsqueeze(-2)),
             torch.eq(variate_id.unsqueeze(-1), variate_id.unsqueeze(-2)),

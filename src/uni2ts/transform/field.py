@@ -51,6 +51,7 @@ class SelectFields(Transformation):
     def __call__(self, data_entry: dict[str, Any]) -> dict[str, Any]:
         if self.allow_missing:
             return {f: data_entry[f] for f in self.fields if f in data_entry}
+        # 按照预定义好的fields，从调用时输入的data_entry中取出这些field！
         return {f: data_entry[f] for f in self.fields}
 
 

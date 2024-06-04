@@ -26,6 +26,7 @@ from ._base import Transformation
 from ._mixin import MapFuncMixin
 
 
+# 参照patch大小做裁剪？
 @dataclass
 class PatchCrop(MapFuncMixin, Transformation):
     """
@@ -38,11 +39,11 @@ class PatchCrop(MapFuncMixin, Transformation):
     :param fields: fields to crop
     """
 
-    min_time_patches: int
-    max_patches: int
-    will_flatten: bool = False
-    offset: bool = True
-    fields: tuple[str, ...] = ("target",)
+    min_time_patches: int  # 时间维度上最少要有几个patch
+    max_patches: int  # 时间维度和变量维度展平后，最大要有几个patch
+    will_flatten: bool = False  # 是否要做展平
+    offset: bool = True  # 是否要对crop的起始点做偏移
+    fields: tuple[str, ...] = ("target",)  # 哪些列需要做crop
     optional_fields: tuple[str, ...] = ("past_feat_dynamic_real",)
 
     def __post_init__(self):
@@ -76,6 +77,8 @@ class PatchCrop(MapFuncMixin, Transformation):
             else 1
         )
 
+        # 获得[0, time % patch_size + 1)之间的一个offset大小
+        # 相当于在开头随机去掉一个不超过一个patch大小的offset？
         offset = (
             np.random.randint(
                 time % patch_size + 1
@@ -83,30 +86,37 @@ class PatchCrop(MapFuncMixin, Transformation):
             if self.offset
             else 0
         )
+        # 得到总的patch个数
         total_patches = (
             time - offset
         ) // patch_size  # total number of patches in time series
 
         # 1. max_patches should be divided by nvar if the time series is subsequently flattened
         # 2. cannot have more patches than total available patches
+        # * 最大的patch个数不能超过预设的最大个数，以及当前得到的patch个数
         max_patches = min(self.max_patches // nvar, total_patches)
         if max_patches < self.min_time_patches:
             raise ValueError(
                 f"max_patches={max_patches} < min_time_patches={self.min_time_patches}"
             )
 
+        # 在最小和最大patch个数间随机取一个，表示当前需要考虑作为数据的patch个数
         num_patches = np.random.randint(
             self.min_time_patches, max_patches + 1
         )  # number of patches to consider
+        # 再随机取一个开始的patch
         first = np.random.randint(
             total_patches - num_patches + 1
         )  # first patch to consider
 
+        # 开始的点是offset + first个patch_size
         start = offset + first * patch_size
+        # 结束点是开始点往后num_patches个patch
         stop = start + num_patches * patch_size
         return start, stop
 
 
+# evaluation时的crop
 @dataclass
 class EvalCrop(MapFuncMixin, Transformation):
     offset: int

@@ -24,6 +24,12 @@ from ._base import Transformation
 from ._mixin import CheckArrNDimMixin, CollectFuncMixin, MapFuncMixin
 
 
+# 预测任务
+# 这里有三个点需要采样：
+# 1、均匀采样一个总窗口长度，长度范围为[2, 512]，同时划分出预测窗口的比例为[0.15, 0.5]。
+# 2、在变量维度上使用二项分布采样（n=128，a=2，b=5），最多支持128个变量，平均约为37个变量。
+# 3、将多个单变量时间序列随机组合成多变量。
+# 其中1在这里实现，2和3参考resample.py！
 @dataclass
 class MaskedPrediction(MapFuncMixin, CheckArrNDimMixin, Transformation):
     min_mask_ratio: float
@@ -41,27 +47,39 @@ class MaskedPrediction(MapFuncMixin, CheckArrNDimMixin, Transformation):
 
     def __call__(self, data_entry: dict[str, Any]) -> dict[str, Any]:
         target = data_entry[self.target_field]
+        # 先获得对预测窗口的mask
         prediction_mask = self._generate_prediction_mask(target)
+        # 然后输入数据删除掉被mask的预测窗口部分？
         self.map_func(
             partial(self._truncate, mask=prediction_mask),  # noqa
             data_entry,
             self.truncate_fields,
             optional_fields=self.optional_truncate_fields,
         )
+        # 同时保留预测窗口的mask标记
         data_entry[self.prediction_mask_field] = prediction_mask
         return data_entry
 
+    # 生成预测的mask
     def _generate_prediction_mask(
         self, target: Float[np.ndarray, "var time *feat"]
     ) -> Bool[np.ndarray, "var time"]:
         self.check_ndim("target", target, self.expected_ndim)
+        # 初始化
         var, time = target.shape[:2]
         prediction_mask = np.zeros((var, time), dtype=bool)
+        
+        # mask_ratio在上下限之间（如0.15~0.5）随机得到，表示将一部分设置为预测窗口。
         mask_ratio = np.random.uniform(self.min_mask_ratio, self.max_mask_ratio)
+        # mask的长度为time * mask_ratio，但要保证最小长度是1
         mask_length = max(1, round(time * mask_ratio))
+        
+        # 将最后的mask_length的部分当作预测窗口，其mask被置为True
         prediction_mask[:, -mask_length:] = True
+        
         return prediction_mask
 
+    # 对数据(data_entry[field])做窗口上的裁剪
     def _truncate(
         self,
         data_entry: dict[str, Any],
@@ -76,8 +94,10 @@ class MaskedPrediction(MapFuncMixin, CheckArrNDimMixin, Transformation):
                 if k in self.truncate_fields or k in self.optional_truncate_fields:
                     arr[k] = self._truncate_arr(v, mask)
             return arr
+        # 获取没有被mask的那一部分数据
         return self._truncate_arr(arr, mask)
 
+    # 只取出没有被mask的那一部分数据？
     @staticmethod
     def _truncate_arr(
         arr: Float[np.ndarray, "var time *feat"], mask: Bool[np.ndarray, "var time"]
@@ -85,13 +105,19 @@ class MaskedPrediction(MapFuncMixin, CheckArrNDimMixin, Transformation):
         return arr[:, ~mask[0]]
 
 
+# 延长mask？
+# 在mask_field基础上再加一个aux的mask；
+# 但这里的mask全为0，所以相当于没有加？
 @dataclass
 class ExtendMask(CheckArrNDimMixin, CollectFuncMixin, Transformation):
     fields: tuple[str, ...]
     mask_field: str
     optional_fields: tuple[str, ...] = tuple()
     expected_ndim: int = 2
-
+    
+    # PS：mask_field默认为"prediction_mask"
+    # fields默认为tuple()
+    
     def __call__(self, data_entry: dict[str, Any]) -> dict[str, Any]:
         target_mask: np.ndarray = data_entry[self.mask_field]
         aux_target_mask: list[np.ndarray] = self.collect_func_list(
@@ -100,6 +126,8 @@ class ExtendMask(CheckArrNDimMixin, CollectFuncMixin, Transformation):
             self.fields,
             optional_fields=self.optional_fields,
         )
+        # 在mask_field基础上再加一个aux的mask；
+        # 但这里的mask全为0，所以相当于没有加？
         data_entry[self.mask_field] = [target_mask] + aux_target_mask
         return data_entry
 
@@ -109,6 +137,7 @@ class ExtendMask(CheckArrNDimMixin, CollectFuncMixin, Transformation):
         arr: np.ndarray = data_entry[field]
         self.check_ndim(field, arr, self.expected_ndim)
         var, time = arr.shape[:2]
+        # 先是一个var*time的全为0的mask？
         field_target_mask = np.zeros((var, time), dtype=bool)
         return field_target_mask
 

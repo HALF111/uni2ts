@@ -19,6 +19,7 @@ from typing import Any
 import numpy as np
 
 
+# 对data_entry中的各个列施加func函数！
 class MapFuncMixin:
     @staticmethod
     def map_func(
@@ -50,6 +51,7 @@ class ApplyFuncMixin:
 
 
 class CollectFuncMixin:
+    # 输出为list
     @staticmethod
     def collect_func_list(
         func: Callable[[dict[str, Any], str], Any],
@@ -65,6 +67,7 @@ class CollectFuncMixin:
                 collect.append(func(data_entry, field))
         return collect
 
+    # 输出为dict
     @staticmethod
     def collect_func_dict(
         func: Callable[[dict[str, Any], str], Any],
@@ -80,6 +83,7 @@ class CollectFuncMixin:
                 collect[field] = func(data_entry, field)
         return collect
 
+    # 根据type进行判断
     def collect_func(
         self,
         func: Callable[[dict[str, Any], str], Any],

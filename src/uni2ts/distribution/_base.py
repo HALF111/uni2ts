@@ -19,7 +19,7 @@ from typing import Any, Optional
 
 import torch
 from einops import rearrange
-from jaxtyping import Float, PyTree
+from jaxtyping import Float, Int, PyTree
 from torch import nn
 from torch.distributions import AffineTransform, Distribution, TransformedDistribution
 from torch.utils._pytree import tree_flatten, tree_map, tree_unflatten
@@ -38,6 +38,7 @@ def tree_map_multi(
     return tree_unflatten(return_leaves, treespec)
 
 
+# 将tree中的各个成员转成模型的模块？
 def convert_to_module(tree: PyTree[nn.Module, "T"]) -> PyTree[nn.Module, "T"]:
     if isinstance(tree, dict):
         return nn.ModuleDict(
@@ -56,6 +57,7 @@ def convert_to_container(tree: PyTree[nn.Module, "T"]) -> PyTree[nn.Module, "T"]
     return tree
 
 
+# 分布的参数映射
 class DistrParamProj(nn.Module):
     def __init__(
         self,
@@ -71,6 +73,8 @@ class DistrParamProj(nn.Module):
         self.out_features = out_features
         self.args_dim = args_dim
         self.domain_map = domain_map
+        # 如果out_features只有1个，那么生成从in_features到dim * out_features的映射层
+        # 如果有多个，那么就是从in_features到tuple(dim * of for of in out_features)的多patch映射层了
         self.proj = convert_to_module(
             tree_map(
                 lambda dim: (
@@ -79,13 +83,14 @@ class DistrParamProj(nn.Module):
                     else proj_layer(
                         in_features,
                         tuple(dim * of for of in out_features),
-                        dim=dim,
+                        dim=dim,  # FIXME: newly-added 'dim'!!!
                         **kwargs,
                     )
                 ),
                 args_dim,
             )
         )
+        # 输出的out_size是所有的patch_size里最大的那一个
         self.out_size = (
             out_features if isinstance(out_features, int) else max(out_features)
         )
@@ -105,6 +110,8 @@ class DistrParamProj(nn.Module):
         return params
 
 
+# 对当前分布做一个scaling？
+# PS：这里的TransformedDistribution基类是Distribution类的扩展，它将一系列变换应用于基本的分布。
 class AffineTransformed(TransformedDistribution):
     def __init__(
         self,
@@ -121,6 +128,7 @@ class AffineTransformed(TransformedDistribution):
             validate_args=validate_args,
         )
 
+    # 重新修改下当前分布的mean和var！！
     @property
     def mean(self) -> torch.Tensor:
         return self.base_dist.mean * self.scale + self.loc
@@ -132,6 +140,7 @@ class AffineTransformed(TransformedDistribution):
 
 @abstract_class_property("distr_cls")
 class DistributionOutput:
+    # distr_cls通常为一个Distribution类型的对象
     distr_cls: type[Distribution] = NotImplemented
 
     def distribution(
@@ -141,9 +150,12 @@ class DistributionOutput:
         scale: Optional[torch.Tensor] = None,
         validate_args: Optional[bool] = None,
     ) -> Distribution:
+        # 根据参数，得到Distribution类型的distr
         distr = self._distribution(distr_params, validate_args=validate_args)
+        # 如果loc或scale非None，那么还需要做一个scaling！
         if loc is not None or scale is not None:
             distr = AffineTransformed(distr, loc=loc, scale=scale)
+        # 返回的仍然是distribution！！
         return distr
 
     def _distribution(
@@ -151,6 +163,8 @@ class DistributionOutput:
         distr_params: PyTree[torch.Tensor, "T"],
         validate_args: Optional[bool] = None,
     ) -> Distribution:
+        # distr_cls通常为一个Distribution类型的对象
+        # 通过该类别以及对应的参数，返回的也是Distribution类型的对象
         return self.distr_cls(**distr_params, validate_args=validate_args)
 
     @property

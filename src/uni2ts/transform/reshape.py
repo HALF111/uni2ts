@@ -31,18 +31,20 @@ class SequencifyField(Transformation):
     target_axis: int = 0
 
     def __call__(self, data_entry: dict[str, Any]) -> dict[str, Any]:
+        # 将field列的axis维、按照target_field列中的target_axis维的大小做repeat！！
         data_entry[self.field] = data_entry[self.field].repeat(
             data_entry[self.target_field].shape[self.target_axis], axis=self.axis
         )
         return data_entry
 
 
+# 打包各个特征列？
 @dataclass
 class PackFields(CollectFuncMixin, Transformation):
     output_field: str
     fields: tuple[str, ...]
     optional_fields: tuple[str, ...] = tuple()
-    feat: bool = False
+    feat: bool = False  # 是否包含特征？
 
     def __post_init__(self):
         self.pack_str: str = "* time feat" if self.feat else "* time"
@@ -55,12 +57,17 @@ class PackFields(CollectFuncMixin, Transformation):
             optional_fields=self.optional_fields,
         )
         if len(fields) > 0:
+            # 删除后将剩余的field打包在一起
+            # einops.pack：将fields中的集合field按照str的指示做维度的合并（通常是沿着“*”维合并）
+            # ref：https://einops.rocks/api/pack_unpack/
             output_field = pack(fields, self.pack_str)[0]
+            # 再额外加上output_field
             data_entry |= {self.output_field: output_field}
         return data_entry
 
     @staticmethod
     def pop_field(data_entry: dict[str, Any], field: str) -> Any:
+        # 从data_entry中删除指定的field？
         return np.asarray(data_entry.pop(field))
 
 
@@ -70,6 +77,9 @@ class FlatPackFields(CollectFuncMixin, Transformation):
     fields: tuple[str, ...]
     optional_fields: tuple[str, ...] = tuple()
     feat: bool = False
+    
+    # 和PackFields几乎一样
+    # 仅修改了pack_str！！
 
     def __post_init__(self):
         self.pack_str: str = "* feat" if self.feat else "*"
@@ -86,6 +96,7 @@ class FlatPackFields(CollectFuncMixin, Transformation):
             data_entry |= {self.output_field: output_field}
         return data_entry
 
+    # 丢掉某一列
     @staticmethod
     def pop_field(data_entry: dict[str, Any], field: str) -> Any:
         return np.asarray(data_entry.pop(field))
@@ -117,8 +128,10 @@ class FlatPackCollection(Transformation):
 
     def __call__(self, data_entry: dict[str, Any]) -> dict[str, Any]:
         collection = data_entry[self.field]
+        # 如果是dict，转换成list
         if isinstance(collection, dict):
             collection = list(collection.values())
+        # pack函数将fields中的集合field按照str的指示做维度的合并（通常是沿着“*”维合并）
         data_entry[self.field] = pack(collection, self.pack_str)[0]
         return data_entry
 

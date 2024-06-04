@@ -21,10 +21,18 @@ import numpy as np
 from uni2ts.common.typing import BatchedData, Data
 
 
+<<<<<<< HEAD
+=======
+# indexer的基类
+>>>>>>> 754bd6b (add comments on src code)
 class Indexer(abc.ABC, Sequence):
     def __init__(self, uniform: bool = False):
         self.uniform = uniform
 
+<<<<<<< HEAD
+=======
+    # 检查idx是否是三个类中的一个，以及范围是否超出上下界
+>>>>>>> 754bd6b (add comments on src code)
     def check_index(self, idx: int | slice | Iterable[int]):
         if isinstance(idx, int):
             if idx < 0 or idx >= len(self):
@@ -45,6 +53,10 @@ class Indexer(abc.ABC, Sequence):
         else:
             raise NotImplementedError(f"Unable to index on type: {type(idx)}")
 
+<<<<<<< HEAD
+=======
+    # 根据idx的格式，从self.dataset中取出对应的item！
+>>>>>>> 754bd6b (add comments on src code)
     def __getitem__(
         self, idx: int | slice | Iterable[int]
     ) -> dict[str, Data | BatchedData]:
@@ -59,6 +71,10 @@ class Indexer(abc.ABC, Sequence):
         else:
             raise NotImplementedError(f"Unable to index on type: {type(idx)}")
 
+<<<<<<< HEAD
+=======
+        # 以dict的形式返回item
+>>>>>>> 754bd6b (add comments on src code)
         return {k: v for k, v in item.items()}
 
     def _getitem_slice(self, idx: slice) -> dict[str, BatchedData]:
@@ -71,6 +87,10 @@ class Indexer(abc.ABC, Sequence):
     @abc.abstractmethod
     def _getitem_iterable(self, idx: Iterable[int]) -> dict[str, BatchedData]: ...
 
+<<<<<<< HEAD
+=======
+    # 给每个样本均匀的概率？
+>>>>>>> 754bd6b (add comments on src code)
     def get_uniform_probabilities(self) -> np.ndarray:
         return np.ones(len(self)) / len(self)
 
@@ -78,6 +98,10 @@ class Indexer(abc.ABC, Sequence):
         if self.uniform:
             return self.get_uniform_probabilities()
 
+<<<<<<< HEAD
+=======
+        # 或者可以根据当前样本的长度来分配概率？
+>>>>>>> 754bd6b (add comments on src code)
         lengths = np.asarray([sample[field].shape[-1] for sample in self])
         probs = lengths / lengths.sum()
         return probs

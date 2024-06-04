@@ -27,6 +27,7 @@ from .ffn import FeedForward, GatedLinearUnitFeedForward
 from .position import AttentionBias, QueryKeyProjection
 
 
+# 具体的encoder块！！
 class TransformerEncoderLayer(nn.Module):
     def __init__(
         self,
@@ -54,6 +55,7 @@ class TransformerEncoderLayer(nn.Module):
         var_id: Optional[Int[torch.Tensor, "*batch time_len"]] = None,
         time_id: Optional[Int[torch.Tensor, "*batch time_len"]] = None,
     ) -> Float[torch.Tensor, "*batch time_len dim"]:
+        # 这里会多传入variate_id和time_id的信息！
         if self.pre_norm:
             x = x + self._sa_block(
                 self.norm1(x), attn_mask, var_id=var_id, time_id=time_id
@@ -67,6 +69,8 @@ class TransformerEncoderLayer(nn.Module):
 
         return x
 
+    # 快速调用self-attention
+    # 封装了self-attention+dropout！
     def _sa_block(
         self,
         x: Float[torch.Tensor, "*batch time_len dim"],
@@ -87,6 +91,7 @@ class TransformerEncoderLayer(nn.Module):
         return self.dropout(x)
 
 
+# 最核心的encoder块！！
 class TransformerEncoder(nn.Module):
     def __init__(
         self,
@@ -117,7 +122,7 @@ class TransformerEncoder(nn.Module):
     ):
         super().__init__()
         num_heads = num_heads or d_model // 64
-        num_groups = num_groups or num_heads  # defaults to mha
+        num_groups = num_groups or num_heads  # defaults to mha，即默认做multi-head的attention！
 
         var_attn_bias = self.get_layer(
             d_model,
@@ -140,6 +145,7 @@ class TransformerEncoder(nn.Module):
             d_model, num_heads, num_groups, time_qk_proj_layer, shared_time_qk_proj
         )
 
+        # 得到一个将GroupedQueryAttention中部分参数固定的新函数
         get_self_attn = partial(
             GroupedQueryAttention,
             dim=d_model,
@@ -165,6 +171,7 @@ class TransformerEncoder(nn.Module):
         )
         get_encoder_layer_norm = partial(norm_layer, d_model)
 
+        # 堆叠多个encoder层！！
         self.layers = nn.ModuleList(
             [
                 TransformerEncoderLayer(
@@ -178,8 +185,12 @@ class TransformerEncoder(nn.Module):
                 for _ in range(num_layers)
             ]
         )
+        
+        # * 默认用LayerNorm
+        # * 但是外部传参传的是RMSNorm！！！
         self.norm = norm_layer(d_model)
 
+    # 获得部分参数固定的函数层？
     @staticmethod
     def get_layer(
         dim: int,
@@ -195,6 +206,7 @@ class TransformerEncoder(nn.Module):
             return lambda: module
         return partial(layer, dim=dim, num_heads=num_heads, num_groups=num_groups)
 
+    # 就是逐层调用，最后加个norm就ok了。
     def forward(
         self,
         x: Float[torch.Tensor, "*batch time_len dim"],

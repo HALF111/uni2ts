@@ -31,13 +31,15 @@ class Mixture(Distribution):
 
     def __init__(
         self,
-        weights: Categorical,
+        weights: Categorical,  # Categorical：创建由probs或logits（但不同时包含两者）参数化的分类分布。
         components: list[Distribution],
         validate_args: Optional[bool] = None,
     ):
+        # Mxiture可以包含多个子分布
         for comp in components:
             comp._validate_args = False
 
+        # 各个分布的权重？，是Categorical类
         self.weights = weights
         self.components = components
 
@@ -47,6 +49,12 @@ class Mixture(Distribution):
         if not all(isinstance(comp, Distribution) for comp in components):
             raise TypeError("components must all be instances of Distribution")
 
+        # event_shape、batch_shape和sample_shape：
+        # event_shape：描述了从分布中单次抽样的形状；抽样可能依赖于不同维度。
+        # batch_shape：描述了独立但并非同分布的抽样，也称为分布的“批次”
+        # sample_shape：描述了来自分布系列的独立同分布批次抽样
+        # ref：https://tensorflow.google.cn/probability/examples/Understanding_TensorFlow_Distributions_Shapes?hl=zh-cn
+        # ref2：https://bochang.me/blog/posts/pytorch-distributions/
         batch_shape = weights.batch_shape
         event_shape = components[0].event_shape
         if validate_args:
@@ -124,14 +132,21 @@ class Mixture(Distribution):
         )
         return (weights_log_probs + components_log_probs).logsumexp(dim=0)
 
+    # 根据样本形状，从分布中进行采样？
     def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
         with torch.no_grad():
+            # 先从各个component中采样出sample
             components_samples = torch.stack(
                 [comp.sample(sample_shape) for comp in self.components], dim=-1
             )
+            # 再对权重做采样？？
             weights_sample = unsqueeze_trailing_dims(
                 self.weights.sample(sample_shape), components_samples.shape
             )
+            # 然后使用gather函数沿着指定的轴收集数值
+            # torch.gather(input, dim, index, *, sparse_grad=False, out=None) → Tensor：
+            # input：目标变量，输入；dim：需要沿着取值的坐标轴；index：需要取值的索引矩阵。
+            # 能否理解为根据权重比例从各个component的samples中的各个维做挑选？？？
             samples = torch.gather(
                 components_samples,
                 dim=-1,
@@ -143,6 +158,7 @@ class Mixture(Distribution):
     def support(self) -> constraints.Constraint:
         return constraints.real
 
+    # 计算新的mean和var？
     @property
     def mean(self) -> torch.Tensor:
         weights_probs = torch.stack(self.weights.probs.unbind(dim=-1))
@@ -161,32 +177,36 @@ class Mixture(Distribution):
         ) - self.mean.pow(2.0)
         return expected_cond_var + var_cond_expectation
 
+    # 返回在value处的cdf函数的值？
     def cdf(self, value: torch.Tensor) -> torch.Tensor:
         weights_prob = self.weights.probs
         components_cdf = torch.stack([comp.cdf(value) for comp in self.components])
         return (weights_prob * components_cdf).sum(dim=0)
 
 
+# 混合的输出分布
+# 该模块会在初始化模型之前被调用？？
 class MixtureOutput(DistributionOutput):
     distr_cls = Mixture
 
     def __init__(self, components: list[DistributionOutput]):
         self.components = components
 
+    # 相较于基类，这里的distr_cls就是Mxiture；并且可以将多个component的分布给混合起来。
     def _distribution(
         self,
-        distr_params: PyTree[torch.Tensor, "T"],
+        distr_params: PyTree[torch.Tensor, "T"],  # pytree是指用python容器（如list、dict、tuple、OrderedDict、None、namedtuple等）储存的树状结构的数据。大白话：就是嵌套式的list/dict/tuple结构
         validate_args: Optional[bool] = None,
     ) -> Distribution:
         return self.distr_cls(
             weights=Categorical(
-                logits=distr_params["weights_logits"], validate_args=validate_args
+                logits=distr_params["weights_logits"], validate_args=validate_args  # distr_params["weights_logits"]的shape为(128, 512, 128, 4)
             ),
             components=[
                 component._distribution(comp_params, validate_args=validate_args)
                 for component, comp_params in zip(
                     self.components, distr_params["components"]
-                )
+                )  # 这里共有4个分布，分别是StudentT、NormalFixedScale、NegativeBinomial、LogNormal。以及各自对应的参数。
             ],
             validate_args=validate_args,
         )

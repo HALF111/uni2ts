@@ -30,4 +30,7 @@ class PackedNLLLoss(PackedDistributionLoss):
         sample_id: Int[torch.Tensor, "*batch seq_len"],
         variate_id: Int[torch.Tensor, "*batch seq_len"],
     ) -> Float[torch.Tensor, "*batch seq_len #dim"]:
+        # 注意这里pred是Distribution类型的，而target则为具体值。
+        # log_prob函数可以用于计算给定概率分布下某个事件的对数概率（即先求概率再做对数）。
+        # 例如这里计算target出现在pred这一分布中的对数概率。
         return -pred.log_prob(target)

@@ -112,10 +112,7 @@ def test_multi_out_size_linear(
     in_features: int,
     out_features_ls: tuple[int, ...],
     dim: int,
-    bias: bool,
     seed: int,
-):
-    # init data
     torch.manual_seed(seed)
     x = torch.randn(batch_shape + (in_features,))
     inp_idx = torch.randint(0, len(out_features_ls), batch_shape)

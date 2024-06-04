@@ -24,6 +24,7 @@ from torch.distributions import Distribution
 from uni2ts.common.torch_util import safe_div
 
 
+# abc.ABC：抽象基类
 class PackedLoss(abc.ABC):
     def __call__(
         self,
@@ -43,7 +44,7 @@ class PackedLoss(abc.ABC):
 
         loss = self._loss_func(
             pred, target, prediction_mask, observed_mask, sample_id, variate_id
-        )
+        )  # 此时，loss的shape仍然是(128, 512, 128)，和target的维度一致。
         return self.reduce_loss(
             loss, prediction_mask, observed_mask, sample_id, variate_id
         )
@@ -70,9 +71,9 @@ class PackedLoss(abc.ABC):
         id_mask = torch.logical_and(
             torch.eq(sample_id.unsqueeze(-1), sample_id.unsqueeze(-2)),
             torch.eq(variate_id.unsqueeze(-1), variate_id.unsqueeze(-2)),
-        )
-        mask = prediction_mask.unsqueeze(-1) * observed_mask
-        tobs = reduce(
+        )  # (128,512,512)
+        mask = prediction_mask.unsqueeze(-1) * observed_mask  # (128,512,128)
+        tobs = reduce(  # einops.reduce做的是重新排序和降维的工作
             id_mask
             * reduce(
                 mask,
@@ -81,15 +82,15 @@ class PackedLoss(abc.ABC):
             ),
             "... seq1 seq2 -> ... seq1 1",
             "sum",
-        )
+        )  # (128,512,1)
         nobs = reduce(
             id_mask * rearrange(prediction_mask, "... seq -> ... 1 seq"),
             "... seq1 seq2 -> ... seq1 1",
             "sum",
-        ) * prediction_mask.unsqueeze(-1)
-        nobs = torch.where(nobs == 0, nobs, 1 / nobs).sum()
-        loss = safe_div(loss, tobs * nobs)
-        return (loss * mask).sum()
+        ) * prediction_mask.unsqueeze(-1)  # (128,512,1)
+        nobs = torch.where(nobs == 0, nobs, 1 / nobs).sum()  # nobs变成标量了
+        loss = safe_div(loss, tobs * nobs)  # 向量和向量的逐元素除法？(128,512,128)除以(128,512,1)后仍然是(128,512,128)
+        return (loss * mask).sum()  # 乘上mask后求和，得到最终的标量的loss！！（如loss=4.4619）
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}()"

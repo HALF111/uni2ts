@@ -7,6 +7,7 @@ from gluonts.ev.metrics import BaseMetricDefinition, DirectMetric
 from gluonts.ev.stats import squared_error
 
 
+# 这个MedianMSE需要自定义，其他的metric都是直接从gluonts里面来的。
 @dataclass
 class MedianMSE(BaseMetricDefinition):
     """Mean Squared Error"""

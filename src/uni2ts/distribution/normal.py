@@ -44,6 +44,8 @@ class NormalOutput(DistributionOutput):
         return F.softplus(scale).clamp_min(epsilon).squeeze(-1)
 
 
+# 在预训练初始化模型之前，会先调用这里？
+# 其继承于DistributionOutput，是一个？？
 class NormalFixedScaleOutput(DistributionOutput):
     distr_cls = Normal
     args_dim = dict(loc=1)

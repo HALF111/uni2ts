@@ -55,6 +55,11 @@ def native_scaled_dot_product_attention(
     return attn_weight @ value
 
 
+# 这里用的是Group Query的Attention！！即：分组查询注意力 (GQA)！
+# Grouped-Query Attention (GQA) 是对 Multi-Head Attention (MHA) 和 Multi-Query Attention (MQA) 的扩展。通过提供计算效率和模型表达能力之间的灵活权衡，实现了查询头的分组。
+# 其将query分成G组，每组query共享单个key和value。GQA-G 是指G组分组查询。
+# 那么GQA-1，即所有query共享公共的key和value，等价于MQA。
+# 而GQA-H对每个query给独立的key和value，那么和常规的multi-head attention等价。
 class GroupedQueryAttention(nn.Module):
     def __init__(
         self,
@@ -97,6 +102,7 @@ class GroupedQueryAttention(nn.Module):
         self.attn_dropout_p = attn_dropout_p
         self.out_proj = nn.Linear(dim, dim, bias=bias)
 
+    # 获得variate id
     def _get_var_id(
         self,
         query: Float[torch.Tensor, "*batch group hpg q_len dim"],
@@ -109,11 +115,13 @@ class GroupedQueryAttention(nn.Module):
     ]:
         if self.var_attn_bias is not None or self.var_qk_proj is not None:
             if query_var_id is None:
+                # 为None的话就生成一个全为0的
                 query_var_id = repeat(
                     torch.zeros((), device=query.device, dtype=torch.long),
                     f" -> {' '.join(map(str, query.shape[:-4]))} 1 1 {query.shape[-2]}",
                 )
             else:
+                # 否则，rearrange一下就可以
                 query_var_id = rearrange(query_var_id, "... q_len -> ... 1 1 q_len")
 
             if kv_var_id is None:
@@ -126,6 +134,7 @@ class GroupedQueryAttention(nn.Module):
 
         return query_var_id, kv_var_id
 
+    # 获得time_id
     def _get_time_id(
         self,
         query: Float[torch.Tensor, "*batch group hpg q_len dim"],
@@ -138,6 +147,7 @@ class GroupedQueryAttention(nn.Module):
     ]:
         if self.time_attn_bias is not None or self.time_qk_proj is not None:
             if query_time_id is None:
+                # 为None的话就生成一个全为0的
                 query_time_id = repeat(
                     torch.arange(
                         query.shape[-2], device=query.device, dtype=torch.long
@@ -145,6 +155,7 @@ class GroupedQueryAttention(nn.Module):
                     f"q_len -> {' '.join(map(str, query.shape[:-4]))} 1 1 q_len",
                 )
             else:
+                # 否则，rearrange一下就可以
                 query_time_id = rearrange(query_time_id, "... q_len -> ... 1 1 q_len")
 
             if kv_time_id is None:
@@ -157,6 +168,7 @@ class GroupedQueryAttention(nn.Module):
 
         return query_time_id, kv_time_id
 
+    # 更新注意力掩码
     def _update_attn_mask(
         self,
         attn_mask: Optional[Bool[torch.Tensor, "*batch q_len kv_len"]],
@@ -204,6 +216,7 @@ class GroupedQueryAttention(nn.Module):
         )
         return attn_mask
 
+    # q和k的映射层
     def _qk_proj(
         self,
         query: Float[torch.Tensor, "*batch group hpg q_len dim"],
@@ -216,6 +229,7 @@ class GroupedQueryAttention(nn.Module):
         Float[torch.Tensor, "*batch group hpg q_len dim"],
         Float[torch.Tensor, "*batch group hpg kv_len dim"],
     ]:
+        # 分别从var_qk_proj和time_qk_proj映射一下
         if self.var_qk_proj is not None:
             query, key = self.var_qk_proj(
                 query, key, query_id=query_var_id, kv_id=kv_var_id
@@ -239,10 +253,12 @@ class GroupedQueryAttention(nn.Module):
         query_time_id: Optional[Int[torch.Tensor, "*batch q_len"]] = None,
         kv_time_id: Optional[Int[torch.Tensor, "*batch kv_len"]] = None,
     ) -> Float[torch.Tensor, "*batch q_len dim"]:
+        # 1、先对qkv做投影映射
         query = self.q_proj(query)
         key = self.k_proj(key)
         value = self.v_proj(value)
 
+        # 2、对q和k做norm！
         query = self.q_norm(
             rearrange(
                 query,
@@ -259,6 +275,7 @@ class GroupedQueryAttention(nn.Module):
                 hpg=self.heads_per_group,
             )
         )
+        # value无需做norm
         value = repeat(
             value,
             "... kv_len (group dim) -> ... group hpg kv_len dim",
@@ -266,6 +283,7 @@ class GroupedQueryAttention(nn.Module):
             hpg=self.heads_per_group,
         )
 
+        # 3、获得qkv的variate-id个time-id
         query_var_id, kv_var_id = self._get_var_id(query, key, query_var_id, kv_var_id)
         query_time_id, kv_time_id = self._get_time_id(
             query,
@@ -274,6 +292,7 @@ class GroupedQueryAttention(nn.Module):
             kv_time_id,
         )
 
+        # 4、更新注意力掩码
         attn_mask = self._update_attn_mask(
             attn_mask,
             query,
@@ -284,6 +303,7 @@ class GroupedQueryAttention(nn.Module):
             kv_time_id=kv_time_id,
         )
 
+        # 5、映射q和k
         query, key = self._qk_proj(
             query,
             key,
@@ -293,6 +313,7 @@ class GroupedQueryAttention(nn.Module):
             kv_time_id=kv_time_id,
         )
 
+        # 6、最后计算dot-product注意力
         out = F.scaled_dot_product_attention(
             query,
             key,
@@ -301,10 +322,13 @@ class GroupedQueryAttention(nn.Module):
             dropout_p=self.attn_dropout_p,
             scale=self.softmax_scale,
         )
+        # 并rearrange一下
         out = rearrange(out, "... group hpg q_len dim -> ... q_len (group hpg dim)")
+        # 7、最后用输出层映射一下
         return self.out_proj(out)
 
 
+# MQA！
 class MultiQueryAttention(GroupedQueryAttention):
     def __init__(
         self,
@@ -322,7 +346,7 @@ class MultiQueryAttention(GroupedQueryAttention):
         super().__init__(
             dim=dim,
             num_heads=num_heads,
-            num_groups=1,
+            num_groups=1,  # 只需要将num_groups设置为1
             bias=bias,
             norm_layer=norm_layer,
             softmax_scale=softmax_scale,
@@ -334,6 +358,7 @@ class MultiQueryAttention(GroupedQueryAttention):
         )
 
 
+# 最常规的MHA！
 class MultiHeadAttention(GroupedQueryAttention):
     def __init__(
         self,
@@ -351,7 +376,7 @@ class MultiHeadAttention(GroupedQueryAttention):
         super().__init__(
             dim=dim,
             num_heads=num_heads,
-            num_groups=num_heads,
+            num_groups=num_heads,  # 只需要将num_groups设置为num_heads一样大
             bias=bias,
             norm_layer=norm_layer,
             softmax_scale=softmax_scale,

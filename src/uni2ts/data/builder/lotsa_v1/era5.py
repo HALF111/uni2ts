@@ -51,11 +51,20 @@ ERA5_VARIABLES = [
 
 
 class ERA5DatasetBuilder(LOTSADatasetBuilder):
+    # 数据集名称的list，从era_1989到era_2018！
     dataset_list = [f"era5_{year}" for year in range(1989, 2018 + 1)]
+    # 当前数据集类型均为TimeSeriesDataset？
+    # PS：defaultdict是dict的子类，可以为字典提供默认值，避免KeyError异常。
     dataset_type_map = defaultdict(lambda: TimeSeriesDataset)
+    # partial：假设某函数func参数太多、需要简化时，使用partial可以快速创建一个新的函数、其能固定住原函数的部分参数，从而调用时更简单。
+    # 一句话就是 “将partial的参数再附加给指定函数”
+    # ref：https://www.liaoxuefeng.com/wiki/1016959663602400/1017454145929440
     dataset_load_func_map = defaultdict(lambda: partial(TimeSeriesDataset))
     uniform = True
 
+    # 如何构建dataset
+    # 就是
+    # * 子类只需要实现build_dataset方法即可，load_dataset均参考父类的实现！！
     def build_dataset(self, dataset: str, num_proc: int = os.cpu_count()):
         era5_path = Path(os.getenv("ERA5_PATH"))
 
@@ -76,6 +85,7 @@ class ERA5DatasetBuilder(LOTSADatasetBuilder):
             jobs: list[tuple[int, int]]
         ) -> Generator[dict[str, Any], None, None]:
             for x, y in jobs:
+                # 生成样本？？
                 yield dict(
                     item_id=f"{year}_{x}_{y}",
                     start=pd.Timestamp(f"{year}-01-01"),
@@ -100,6 +110,7 @@ class ERA5DatasetBuilder(LOTSADatasetBuilder):
             cache_dir=env.HF_CACHE_PATH,
         )
         hf_dataset.info.dataset_name = dataset
+        # 将其保存到disk上？
         hf_dataset.save_to_disk(
             self.storage_path / dataset,
             num_proc=num_proc,

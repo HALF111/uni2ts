@@ -66,6 +66,8 @@ from uni2ts.transform import (
 from .module import MoiraiModule
 
 
+# 做微调！！
+# 不同于模型定义，这里继承自lightning中的module。
 class MoiraiFinetune(L.LightningModule):
     seq_fields: tuple[str, ...] = (
         "target",
@@ -169,6 +171,7 @@ class MoiraiFinetune(L.LightningModule):
         )
         return loss
 
+    # 相比pre-train多了这个函数
     def validation_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int, dataloader_idx: int = 0
     ) -> torch.Tensor:
@@ -192,7 +195,7 @@ class MoiraiFinetune(L.LightningModule):
             batch["sample_id"].max(dim=1).values.sum() if "sample_id" in batch else None
         )
         self.log(
-            f"val/{self.hparams.loss_func.__class__.__name__}",
+            f"val/{self.hparams.loss_func.__class__.__name__}",  # 将loss function的名字改成了val_loss
             val_loss,
             on_step=self.hparams.log_on_step,
             on_epoch=True,
@@ -246,6 +249,7 @@ class MoiraiFinetune(L.LightningModule):
 
         return val_loss
 
+    # 优化器的设置和pretrain相同
     def configure_optimizers(self) -> dict:
         decay = set()
         no_decay = set()
@@ -326,6 +330,7 @@ class MoiraiFinetune(L.LightningModule):
             },
         }
 
+    # 训练时的transformation
     @property
     def train_transform_map(
         self,
@@ -368,10 +373,12 @@ class MoiraiFinetune(L.LightningModule):
                     imputation_method=DummyValueImputation(value=0.0),
                 )
                 + Patchify(
+                    # 由于self.module.patch_sizes在yaml文件中已经定义好了为[8, 16, 32, 64, 128]
+                    # 所以这里max(self.module.patch_sizes)总是128。
                     max_patch_size=max(self.module.patch_sizes),
                     fields=("target", "observed_mask"),
                     optional_fields=("past_feat_dynamic_real",),
-                )
+                )  # 其输出为(1, 75, 128)，这里128是因为需要将其patch大小padding到max_path_size。实际上可以发现(1,75,:64)是有数据的，(1,75,64:)都是padding的0。
                 + AddVariateIndex(
                     fields=("target",),
                     optional_fields=("past_feat_dynamic_real",),
@@ -431,6 +438,8 @@ class MoiraiFinetune(L.LightningModule):
 
         return defaultdict(lambda: default_train_transform)
 
+    # 验证时的transformation
+    # 需要多传入几个参数，如offset、distance、pred_len、seq_len、patch_size等
     @property
     def val_transform_map(
         self,
@@ -506,7 +515,8 @@ class MoiraiFinetune(L.LightningModule):
                     collection_type=dict,
                 )
                 + EvalMaskedPrediction(
-                    mask_length=math.ceil(prediction_length / patch_size),
+                    mask_length=math.ceil(prediction_length / patch_size),  # fix MoiraiFinetune validation transforms mask_length argument
+                    # mask_length=-prediction_length % patch_size,
                     target_field="target",
                     truncate_fields=("variate_id", "time_id", "observed_mask"),
                     optional_truncate_fields=("past_feat_dynamic_real",),

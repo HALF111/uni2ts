@@ -20,6 +20,10 @@ from jaxtyping import Float
 from torch import nn
 
 
+# 用RMSNorm！！ - root mean square normalization
+# LN：减去样本的均值，除以样本的方差，使得整体样本不要太分散
+# RMSNorm：去除了减去均值的操作。可以看作是均值为0的特例的LN。
+# 此外，RMSNorm使用平方根的均值而非整个样本的均值来做归一化，从而减少噪声的影响。
 class RMSNorm(nn.Module):
     def __init__(
         self,
@@ -44,9 +48,11 @@ class RMSNorm(nn.Module):
     def forward(
         self, x: Float[torch.Tensor, "*batch normalized_shape"]
     ) -> Float[torch.Tensor, "*batch normalized_shape"]:
+        # 计算平方根？
         output = x * torch.rsqrt(
             x.pow(2).mean(dim=self.mean_dim, keepdim=True) + self.eps
         )
+        # self.weight用于做缩放
         if self.weight is not None:
             return output * self.weight
         return output

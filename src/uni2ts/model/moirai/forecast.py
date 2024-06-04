@@ -41,6 +41,8 @@ from uni2ts.loss.packed import PackedNLLLoss as _PackedNLLLoss
 from .module import MoiraiModule
 
 
+# 这里在uni2ts.loss.packed的PackedNLLLoss的基础上再做了修改
+# 并且改名为SampleNLLLoss
 class SampleNLLLoss(_PackedNLLLoss):
     def reduce_loss(
         self,
@@ -50,6 +52,7 @@ class SampleNLLLoss(_PackedNLLLoss):
         sample_id: Optional[Int[torch.Tensor, "batch seq_len"]],
         variate_id: Optional[Int[torch.Tensor, "batch seq_len"]],
     ) -> Float[torch.Tensor, "batch"]:
+        # 由于是预测，可能会存在mask，所以这里计算loss需要注意下？
         id_mask = torch.logical_and(
             torch.eq(sample_id.unsqueeze(-1), sample_id.unsqueeze(-2)),
             torch.eq(variate_id.unsqueeze(-1), variate_id.unsqueeze(-2)),
@@ -120,11 +123,13 @@ class MoiraiForecast(L.LightningModule):
         for kw in kwargs:
             self.hparams[kw] = old_hparams[kw]
 
+    # 需要先创建预测器！
     def create_predictor(
         self,
         batch_size: int,
         device: str = "auto",
     ) -> PyTorchPredictor:
+        # 如果存在协变量，需要先添加上？
         ts_fields = []
         if self.hparams.feat_dynamic_real_dim > 0:
             ts_fields.append("feat_dynamic_real")
@@ -133,6 +138,7 @@ class MoiraiForecast(L.LightningModule):
         if self.hparams.past_feat_dynamic_real_dim > 0:
             past_ts_fields.append("past_feat_dynamic_real")
             past_ts_fields.append("past_observed_feat_dynamic_real")
+        # 参考TFT中使用的splitter？
         instance_splitter = TFTInstanceSplitter(
             instance_sampler=TestSplitSampler(),
             past_length=self.past_length,
@@ -141,6 +147,7 @@ class MoiraiForecast(L.LightningModule):
             time_series_fields=ts_fields,
             past_time_series_fields=past_ts_fields,
         )
+        # 返回的是gluonts中的PyTorchPredictor？
         return PyTorchPredictor(
             input_names=self.prediction_input_names,
             prediction_net=self,
@@ -150,6 +157,7 @@ class MoiraiForecast(L.LightningModule):
             device=device,
         )
 
+    # 描述inputs的信息？
     def describe_inputs(self, batch_size: int = 1) -> InputSpec:
         data = {
             "past_target": Input(
@@ -217,6 +225,7 @@ class MoiraiForecast(L.LightningModule):
     def training_input_names(self):
         return self.prediction_input_names + ["future_target", "future_observed_values"]
 
+    # 过去的长度？
     @property
     def past_length(self) -> int:
         return (
@@ -225,6 +234,7 @@ class MoiraiForecast(L.LightningModule):
             else self.hparams.context_length
         )
 
+    # context切割后的patch的个数
     def context_token_length(self, patch_size: int) -> int:
         return math.ceil(self.hparams.context_length / patch_size)
 
@@ -235,6 +245,7 @@ class MoiraiForecast(L.LightningModule):
     def max_patch_size(self) -> int:
         return max(self.module.patch_sizes)
 
+    # 针对当前数据频率的最大的patch_size
     def forward(
         self,
         past_target: Float[torch.Tensor, "batch past_time tgt"],
@@ -252,10 +263,12 @@ class MoiraiForecast(L.LightningModule):
         ] = None,
         num_samples: Optional[int] = None,
     ) -> Float[torch.Tensor, "batch sample future_time *tgt"]:
+        # 如果是auto的patch_size：
         if self.hparams.patch_size == "auto":
             val_loss = []
             preds = []
             for patch_size in self.module.patch_sizes:
+                # 计算val_loss？
                 val_loss.append(
                     self._val_loss(
                         patch_size=patch_size,
@@ -290,6 +303,7 @@ class MoiraiForecast(L.LightningModule):
                         ),
                     )
                 )
+                # 获取分布信息
                 distr = self._get_distr(
                     patch_size,
                     past_target[..., -self.hparams.context_length :, :],
@@ -318,6 +332,7 @@ class MoiraiForecast(L.LightningModule):
                         else None
                     ),
                 )
+                # 添加预测内容
                 preds.append(
                     self._format_preds(
                         patch_size,
@@ -388,6 +403,7 @@ class MoiraiForecast(L.LightningModule):
             past_observed_feat_dynamic_real=past_observed_feat_dynamic_real,
         )
         # get predictions
+        # 获得预测的分布
         distr = self.module(
             target,
             observed_mask,
@@ -397,6 +413,7 @@ class MoiraiForecast(L.LightningModule):
             prediction_mask,
             torch.ones_like(time_id, dtype=torch.long) * patch_size,
         )
+        # 根据该分布计算loss
         val_loss = self.per_sample_loss_func(
             pred=distr,
             target=target,
@@ -407,6 +424,7 @@ class MoiraiForecast(L.LightningModule):
         )
         return val_loss
 
+    # 获得分布
     def _get_distr(
         self,
         patch_size: int,
@@ -455,6 +473,7 @@ class MoiraiForecast(L.LightningModule):
         )
         return distr
 
+    # 做sequence packing，解决序列长度不一致的问题。
     @staticmethod
     def _patched_seq_pad(
         patch_size: int,
@@ -792,10 +811,12 @@ class MoiraiForecast(L.LightningModule):
                     ),
                 ]
             )
+            # time_id
             time_id.extend(
                 [past_seq_id] * feat_dynamic_real.shape[-1]
                 + [future_seq_id] * feat_dynamic_real.shape[-1]
             )
+            # variate_id
             variate_id.extend(
                 [
                     repeat(

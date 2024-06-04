@@ -21,6 +21,7 @@ from torch.utils.data import ConcatDataset, Dataset
 from uni2ts.transform import Transformation
 
 
+# 构建数据集的基本类
 # TODO: Add __repr__
 class DatasetBuilder(abc.ABC):
     @abc.abstractmethod
@@ -32,6 +33,7 @@ class DatasetBuilder(abc.ABC):
     ) -> Dataset: ...
 
 
+# 将builders中的builder逐一构造数据集
 class ConcatDatasetBuilder(DatasetBuilder):
     def __init__(self, *builders: DatasetBuilder):
         super().__init__()

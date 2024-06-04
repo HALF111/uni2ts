@@ -108,6 +108,7 @@ class BuildingsBenchDatasetBuilder(LOTSADatasetBuilder):
         hf_dataset.save_to_disk(dataset_path=env.LOTSA_V1_PATH / dataset)
 
 
+# 以第一个buildings_900k数据集为例
 class Buildings900KDatasetBuilder(LOTSADatasetBuilder):
     dataset_list: list[str] = ["buildings_900k"]
     dataset_type_map = dict(buildings_900k=TimeSeriesDataset)
@@ -115,6 +116,7 @@ class Buildings900KDatasetBuilder(LOTSADatasetBuilder):
         buildings_900k=partial(TimeSeriesDataset),
     )
 
+    # 构建数据集
     def build_dataset(self, dataset: str, num_proc: int = os.cpu_count()):
         all_jobs = []
         building_type_and_years = [
@@ -124,6 +126,8 @@ class Buildings900KDatasetBuilder(LOTSADatasetBuilder):
             "resstock_tmy3",
         ]
         regions = ["midwest", "northeast", "south", "west"]
+        
+        # 数据集中混合着这些子集？许哟啊将他们分别取出来？
         for building_type_and_year, region in product(building_type_and_years, regions):
             for building_dir in [
                 "Buildings-900K/end-use-load-profiles-for-us-building-stock",

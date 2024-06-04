@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
+# Transformation基类别，包括chain函数和__add__函数（调用chain函数做转换）
 class Transformation(abc.ABC):
     @abc.abstractmethod
     def __call__(self, data_entry: dict[str, Any]) -> dict[str, Any]: ...
@@ -45,6 +46,7 @@ class Chain(Transformation):
     def __post_init__(self) -> None:
         transformations = []
 
+        # 将转换逐个加入！
         for transformation in self.transformations:
             if isinstance(transformation, Identity):
                 continue
@@ -58,6 +60,7 @@ class Chain(Transformation):
         self.__init_passed_kwargs__ = {"transformations": transformations}
 
     def __call__(self, data_entry: dict[str, Any]) -> dict[str, Any]:
+        # 对transformations中逐一做转换
         for t in self.transformations:
             data_entry = t(data_entry)
         return data_entry

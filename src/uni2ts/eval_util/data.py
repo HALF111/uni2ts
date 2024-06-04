@@ -16,6 +16,10 @@ gluonts.dataset.repository.dataset_recipes |= {
 }
 
 
+# 这个就是数据集的metadata
+# 包括：freq:频率、target_dim:目标所在的维度、prediction_length:预测长度等等。
+# past_feat_dynamic_real_dim:大概是过去的协变量需要几维？
+# split:需要哪部分数据？可以为train或val或test。
 class MetaData(NamedTuple):
     freq: str
     target_dim: int
@@ -25,6 +29,7 @@ class MetaData(NamedTuple):
     split: str = "test"
 
 
+# 获得gluonts上的验证数据集
 def get_gluonts_val_dataset(
     dataset_name: str,
     prediction_length: int = None,
@@ -54,6 +59,7 @@ def get_gluonts_val_dataset(
     return test_data, metadata
 
 
+# 获得gluonts上的测试数据集
 def get_gluonts_test_dataset(
     dataset_name: str,
     prediction_length: int = None,
@@ -83,16 +89,20 @@ def get_gluonts_test_dataset(
     return test_data, metadata
 
 
+# 获取LSF的验证集
 def get_lsf_val_dataset(
     dataset_name: str,
     prediction_length: int = 96,
     mode: str = "S",
 ) -> tuple[TestData, MetaData]:
+    # 获取数据集，其中split为val
     lsf_dataset = LSFDataset(dataset_name, mode=mode, split="val")
     dataset = _FileDataset(
         lsf_dataset, freq=lsf_dataset.freq, one_dim_target=lsf_dataset.target_dim == 1
     )
+    # 做测试集/验证集？的切割
     _, test_template = split(dataset, offset=-lsf_dataset.length)
+    # 测试数据
     test_data = test_template.generate_instances(
         prediction_length,
         windows=lsf_dataset.length - prediction_length + 1,
@@ -108,6 +118,7 @@ def get_lsf_val_dataset(
     return test_data, metadata
 
 
+# 获取LSF的测试集
 def get_lsf_test_dataset(
     dataset_name: str,
     prediction_length: int = 96,
@@ -128,11 +139,12 @@ def get_lsf_test_dataset(
         target_dim=lsf_dataset.target_dim,
         prediction_length=prediction_length,
         past_feat_dynamic_real_dim=lsf_dataset.past_feat_dynamic_real_dim,
-        split="test",
+        split="test",  # 这里也是test。和上面的区别应该就是把split从val改成test吧
     )
     return test_data, metadata
 
 
+# HF_dataset?
 def get_custom_eval_dataset(
     dataset_name: str,
     offset: int,

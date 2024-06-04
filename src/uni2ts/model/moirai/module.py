@@ -56,6 +56,8 @@ def decode_distr_output(config: dict[str, str | float | int]) -> DistributionOut
     return instantiate(config, _convert_="all")
 
 
+# Moirai的模型！！
+# 继承自nn.Module和PyTorchModelHubMixin
 class MoiraiModule(
     nn.Module,
     PyTorchModelHubMixin,
@@ -81,12 +83,16 @@ class MoiraiModule(
         self.max_seq_len = max_seq_len
         self.scaling = scaling
 
+        # * num_embeddings代表词典大小，而embedding_dim表示嵌入向量的维度；
+        # * 这里只需要一个全局共享的mask，故前者为1；后者则需要和模型的d_model一致。
         self.mask_encoding = nn.Embedding(num_embeddings=1, embedding_dim=d_model)
+        # scaling表示做归一化，否则后者表示不做归一化。
         self.scaler = PackedStdScaler() if scaling else PackedNOPScaler()
         self.in_proj = MultiInSizeLinear(
             in_features_ls=patch_sizes,
             out_features=d_model,
         )
+        # 核心的encoder层！！
         self.encoder = TransformerEncoder(
             d_model,
             num_layers,
@@ -94,10 +100,10 @@ class MoiraiModule(
             pre_norm=True,
             attn_dropout_p=attn_dropout_p,
             dropout_p=dropout_p,
-            norm_layer=RMSNorm,
-            activation=F.silu,
+            norm_layer=RMSNorm,  # 使用RMSNorm！！
+            activation=F.silu,  # 使用silu激活函数？
             use_glu=True,
-            use_qk_norm=True,
+            use_qk_norm=True,  # 做qk-norm
             var_attn_bias_layer=partial(BinaryAttentionBias),
             time_qk_proj_layer=partial(
                 QueryKeyProjection,
@@ -109,7 +115,11 @@ class MoiraiModule(
             shared_time_qk_proj=True,
             d_ff=None,
         )
+        # 这个是控制输出按照预定的分布来？
+        # 默认是一个mixture.MixtureOutput的模块？
+        # PS：并且其由StudentTOutput、NormalFixedScaleOutput、NegativeBinomialOutput、LogNormalOutput共4个分布混合而来
         self.distr_output = distr_output
+        # 多patch的输出层
         self.param_proj = self.distr_output.get_param_proj(d_model, patch_sizes)
 
     def forward(
@@ -122,21 +132,29 @@ class MoiraiModule(
         prediction_mask: Bool[torch.Tensor, "*batch seq_len"],
         patch_size: Int[torch.Tensor, "*batch seq_len"],
     ) -> Distribution:
+        # 1、先对数据(target)以及mask和id做归一化？  # 这里target的输入可能为(128, 512, 128)，第一个128表示batch大小为128个bins，512表示每个bins可以装512个patch，最后的128表示每个patch的长度为128。
         loc, scale = self.scaler(
             target,
             observed_mask * ~prediction_mask.unsqueeze(-1),
             sample_id,
             variate_id,
-        )
+        )  # 二者的shape均为(128, 512, 1)，说明是在各个patch内部做的scale。
         scaled_target = (target - loc) / scale
-        reprs = self.in_proj(scaled_target, patch_size)
+        # 2、然后经过多patch的输入线性层
+        reprs = self.in_proj(scaled_target, patch_size)  # 此时reprs为(128, 512, 384)，表示patch长度从128维映射到了384维。
+        # 3、将预测窗口部分标记上mask，也即用self.mask_encoding来做masking
         masked_reprs = mask_fill(reprs, prediction_mask, self.mask_encoding.weight)
+        # 4、经过encoder层
         reprs = self.encoder(
             masked_reprs,
             packed_attention_mask(sample_id),
             time_id=time_id,
             var_id=variate_id,
         )
+        # 5、然后是输出部分的参数映射层
+        # PS：但本质上还是MultiOutSizeLinear这个类  # PS：此时reprs为(128, 512, 384)，表示patch长度从128维映射到了中间向量的384维。# 最后得到的distr_param为一个dict，包含"weights_lofits"和"components"，前者的shape为(128,512,128,4)，4表示有4种分布混合（这里分别是StudentT、NormalFixedScale、NegativeBinomial、LogNormal）。后者则包含4个分布对应的如df、loc、scale、logits等信息。
         distr_param = self.param_proj(reprs, patch_size)
+        # 6、最后做一个分布的转换？
         distr = self.distr_output.distribution(distr_param, loc=loc, scale=scale)
+        # 返回该分布！！
         return distr

@@ -85,6 +85,7 @@ class ImputeTimeSeries(ApplyFuncMixin, Transformation):
         return data_entry
 
     def _impute(self, data_entry: dict[str, Any], field: str):
+        # 将NaN的地方用指定的imputation方法来填充，默认是用0来填充
         value = data_entry[field]
         nan_entries = np.isnan(value)
         if nan_entries.any():
