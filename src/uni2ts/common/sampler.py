@@ -41,10 +41,7 @@ def beta_binomial_sampler(
     return np.random.binomial(n - 1, p) + 1
 
 
-<<<<<<< HEAD
-=======
 # 本文中采用的一些采样方法！！
->>>>>>> 754bd6b (add comments on src code)
 def get_sampler(distribution: str, **kwargs) -> Sampler:
     if distribution == "uniform":
         return uniform_sampler
